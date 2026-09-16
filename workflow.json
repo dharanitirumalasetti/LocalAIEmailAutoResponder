@@ -1,0 +1,122 @@
+{
+  "name": "Local AI Email Auto-Responder",
+  "nodes": [
+    {
+      "parameters": {
+        "mailbox": "INBOX",
+        "downloadAttachments": false,
+        "options": {
+          "onlyUnread": true
+        }
+      },
+      "id": "a1c3f1b7-8f6e-4f63-9d21-0a8c0d8f1001",
+      "name": "Email Read (IMAP)",
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2,
+      "position": [320, 300],
+      "credentials": {
+        "imap": {
+          "name": "IMAP Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ !((($json.from && $json.from.address) ? $json.from.address : ($json.from || '')) === ($env.AUTORESPONDER_EMAIL || 'bot@example.com') || (($json.subject || '')).startsWith('Re: AI Auto-Reply:')) }}",
+              "value2": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b2d4e2c8-8b8f-47f4-9cc5-1c9b1bb0d002",
+      "name": "Loop Prevention",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [560, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://ollama:11434/api/generate",
+        "sendBody": true,
+        "contentType": "json",
+        "bodyParametersJson": "={\n  \"model\": \"llama3:8b\",\n  \"stream\": false,\n  \"prompt\": \"You are a professional and helpful email assistant. Write a concise reply to the incoming email. Use the sender, subject, and body to craft a direct response. Do not include a greeting or signature.\\n\\nSender: \" + ($json.from && $json.from.address ? $json.from.address : ($json.from || '')) + \"\\nSubject: \" + ($json.subject || '') + \"\\nBody:\\n\" + ($json.text || $json.html || '') + \"\\n\\nReturn only the reply body.\"\n}"
+      },
+      "id": "c3e5f3d9-9c90-4d55-af06-2ad2c2cc3003",
+      "name": "Generate Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [820, 300]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.SMTP_FROM_EMAIL || $env.SMTP_USER || 'bot@example.com' }}",
+        "toEmail": "={{ $json.from && $json.from.address ? $json.from.address : ($json.from || '') }}",
+        "subject": "={{ 'Re: ' + ($json.subject || '') }}",
+        "text": "={{ $node[\"Generate Reply\"].json.response }}",
+        "options": {
+          "messageId": "={{ $json.messageId }}"
+        }
+      },
+      "id": "d4f604ea-a0ea-45e0-9c59-3bc3d3dd4004",
+      "name": "Send Reply",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [1080, 300],
+      "credentials": {
+        "smtp": {
+          "name": "SMTP Credentials"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Email Read (IMAP)": {
+      "main": [
+        [
+          {
+            "node": "Loop Prevention",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Prevention": {
+      "main": [
+        [
+          {
+            "node": "Generate Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Generate Reply": {
+      "main": [
+        [
+          {
+            "node": "Send Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "local-ai-email-auto-responder"
+}

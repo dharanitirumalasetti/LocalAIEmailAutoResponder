@@ -1,0 +1,81 @@
+services:
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n_responder
+    ports:
+      - "5678:5678"
+    environment:
+      N8N_HOST: ${N8N_HOST:-localhost}
+      N8N_PORT: ${N8N_PORT:-5678}
+      N8N_PROTOCOL: ${N8N_PROTOCOL:-http}
+      WEBHOOK_URL: ${WEBHOOK_URL:-http://localhost:5678/}
+      N8N_EDITOR_BASE_URL: ${N8N_EDITOR_BASE_URL:-http://localhost:5678/}
+      GENERIC_TIMEZONE: ${GENERIC_TIMEZONE:-UTC}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:-replace-me-with-a-long-random-string}
+      N8N_DIAGNOSTICS_ENABLED: ${N8N_DIAGNOSTICS_ENABLED:-false}
+      N8N_PERSONALIZATION_ENABLED: ${N8N_PERSONALIZATION_ENABLED:-false}
+      N8N_COMMUNITY_PACKAGES_ENABLED: ${N8N_COMMUNITY_PACKAGES_ENABLED:-false}
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      - ai_responder_net
+    depends_on:
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          node -e "const http=require('http'); const req=http.get('http://localhost:5678/healthz', (res) => process.exit(res.statusCode === 200 ? 0 : 1)); req.on('error', () => process.exit(1));"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama_responder
+    ports:
+      - "11434:11434"
+    environment:
+      OLLAMA_HOST: 0.0.0.0
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3:8b}
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - ai_responder_net
+    command:
+      - sh
+      - -lc
+      - |
+        set -eu
+        ollama serve >/tmp/ollama.log 2>&1 &
+        server_pid=$$!
+        trap 'kill $$server_pid >/dev/null 2>&1 || true' INT TERM EXIT
+
+        until ollama list >/dev/null 2>&1; do
+          sleep 2
+        done
+
+        if ! ollama list | grep -q "^${OLLAMA_MODEL:-llama3:8b}[[:space:]]"; then
+          ollama pull "${OLLAMA_MODEL:-llama3:8b}"
+        fi
+
+        wait $$server_pid
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          sh -lc 'ollama list | grep -q "^${OLLAMA_MODEL:-llama3:8b}[[:space:]]"'
+      interval: 30s
+      timeout: 15s
+      retries: 10
+      start_period: 60s
+
+volumes:
+  n8n_data:
+  ollama_data:
+
+networks:
+  ai_responder_net:
+    driver: bridge
